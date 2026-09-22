@@ -638,5 +638,5 @@ async def command_schedule(interaction: discord.Interaction):
         
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
-TOKEN = 'MTU1MTUxMzE1OTIzMDE2OTEwOQ.Gsg3Is.cj7OgVotzQa-QXDN_7iocmavKntb65gDTWyUYc'
+TOKEN = os.environ.get("DISCORD_TOKEN")
 bot.run(TOKEN)
