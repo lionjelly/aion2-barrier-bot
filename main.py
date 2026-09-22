@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 
 CONFIG_FILE = 'config.json'
-AUTO_CHANNEL_NAME = "장벽봇"
+AUTO_CHANNEL_NAME = "🤖｜장벽봇"
 
 DAY_NAMES = ["월", "화", "수", "목", "금", "토", "일"]
 
