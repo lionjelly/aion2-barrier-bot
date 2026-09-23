@@ -30,7 +30,7 @@ HEADERS = {
     "Referer": "https://aion2.plaync.com/"
 }
 
-# 크롤링 상태 저장 변수 (메모리)
+# 크롤링 및 알림 상태 저장 변수 (메모리)
 last_notice_id = None
 last_update_id = None
 last_alert_time = ""
@@ -41,7 +41,7 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="/", intents=intents)
 
 
-# Render Spin Down 방지용 내장 웹서버
+# Render Spin Down 및 Port Binding용 내장 웹서버
 async def start_web_server():
     app = web.Application()
     app.router.add_get('/', lambda r: web.Response(text="Bot Alive"))
@@ -189,10 +189,13 @@ async def on_ready():
     if not check_schedule_alerts.is_running():
         check_schedule_alerts.start()
 
-    # 슬래시 명령어 동기화
+    # 슬래시 명령어 동기화 (429 차단 방지용 3초 지연 및 예외 처리)
+    await asyncio.sleep(3)
     try:
         synced = await bot.tree.sync()
         logger.info(f"슬래시 명령어 {len(synced)}개 동기화 완료.")
+    except discord.errors.HTTPException as e:
+        logger.warning(f"명령어 동기화 제한 발생 (봇 구동은 정상 유지): {e}")
     except Exception as e:
         logger.error(f"명령어 동기화 실패: {e}")
 
