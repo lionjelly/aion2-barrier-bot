@@ -31,7 +31,11 @@ LEGACY_PANEL_TITLES = {
     "🛡️ 장벽봇 패널",
 }
 ALL_PANEL_TITLES = LEGACY_PANEL_TITLES | {PANEL_TITLE}
-INFO_PANEL_TITLE = "📌 장벽봇 안내 · 누구나 사용 가능"
+INFO_PANEL_TITLE = "📌 장벽봇 안내패널"
+ALL_INFO_TITLES = {INFO_PANEL_TITLE, "📌 장벽봇 안내 · 누구나 사용 가능"}
+# 관리자 패널은 /패널생성 을 실행한 관리자의 DM(개인 메시지)으로 보내서 본인만 볼 수 있게 함
+panel_admin: dict = {"id": None, "name": None}   # 안내패널의 "문의" 표시 + 재시작 후 DM 패널 찾기용
+ADMIN_URL_RE = re.compile(r"discord\.com/users/(\d+)")
  
 SCHEDULE_FILE = "schedule.json"
 BACKUP_FILENAME = "장벽봇_일정백업.json"   # 패널에 붙는 백업 파일 (재배포 후 복원용)
@@ -282,7 +286,14 @@ async def restore_schedule():
     except Exception as e:
         logger.warning(f"일정 파일 읽기 실패: {e}")
  
-    # 알림 채널을 먼저, 그다음 나머지 채널
+    async def read_backup(msg):
+        for att in msg.attachments:
+            if att.filename == BACKUP_FILENAME:
+                return json.loads(await att.read()) or None
+        return None
+ 
+    # 1) 서버 채널: 안내패널 위치 + 관리자 정보, (예전 버전의) 공개 관리자 패널 백업
+    channel_backup = None
     targets = get_target_channels()
     others = [ch for g in bot.guilds for ch in g.text_channels if ch not in targets]
     for ch in targets + others:
@@ -293,20 +304,45 @@ async def restore_schedule():
             async for msg in ch.history(limit=30):
                 if not (msg.author.id == bot.user.id and msg.embeds):
                     continue
-                title = msg.embeds[0].title
-                if title == INFO_PANEL_TITLE:
+                emb = msg.embeds[0]
+                if emb.title in ALL_INFO_TITLES:
                     panel_messages[(ch.id, msg.id)] = "info"
-                elif title in ALL_PANEL_TITLES:
+                    m = ADMIN_URL_RE.search((emb.author.url or "") if emb.author else "")
+                    if m and not panel_admin["id"]:
+                        panel_admin["id"] = int(m.group(1))
+                        panel_admin["name"] = (emb.author.name or "").replace("문의: ", "").replace(" (관리자)", "")
+                elif emb.title in ALL_PANEL_TITLES:
                     panel_messages[(ch.id, msg.id)] = "admin"
-                    if loaded is None:
-                        for att in msg.attachments:
-                            if att.filename == BACKUP_FILENAME:
-                                data = json.loads(await att.read())
-                                if data:
-                                    loaded = data
-                                    logger.info(f"[일정] #{ch.name} 패널 백업에서 복원")
+                    if channel_backup is None:
+                        channel_backup = await read_backup(msg)
         except Exception as e:
             logger.warning(f"#{ch.name} 패널 검색 실패: {e}")
+ 
+    # 2) 관리자 DM의 관리자 패널 (가장 최신 백업)
+    dm_backup = None
+    candidates = [panel_admin["id"]] + [g.owner_id for g in bot.guilds]
+    for uid in dict.fromkeys(u for u in candidates if u):
+        try:
+            user = await bot.fetch_user(uid)
+            dm = user.dm_channel or await user.create_dm()
+            async for msg in dm.history(limit=20):
+                if (msg.author.id == bot.user.id and msg.embeds
+                        and msg.embeds[0].title in ALL_PANEL_TITLES):
+                    panel_messages[(dm.id, msg.id)] = "admin"
+                    if dm_backup is None:
+                        dm_backup = await read_backup(msg)
+                    if not panel_admin["id"]:
+                        panel_admin.update(id=user.id, name=user.display_name)
+                    break
+        except Exception as e:
+            logger.warning(f"관리자 DM 패널 검색 실패 ({uid}): {e}")
+ 
+    if loaded is None:
+        loaded = dm_backup or channel_backup
+        if dm_backup:
+            logger.info("[일정] 관리자 DM 패널 백업에서 복원")
+        elif channel_backup:
+            logger.info("[일정] 채널 패널 백업에서 복원")
  
     if loaded is None:
         loaded = {}
@@ -377,7 +413,8 @@ def build_info_panel_embed() -> discord.Embed:
                      "📅 **오늘의 주요 일정** · 오늘 예정된 보스/콘텐츠 시간\n"
                      "📢 **공지사항** · 아이온2 공식 공지 최신 5개\n"
                      "🚀 **업데이트** · 최신 패치노트 5개\n"
-                     "🏠 **CM 아지트** · 업데이트 뉴스 등 CM 소식 5개\n\n"
+                     "🏠 **CM 아지트** · 업데이트 뉴스 등 CM 소식 5개\n"
+                     "❓ **도움말** · 장벽봇 사용법 자세히 보기\n\n"
                      f"새 글과 콘텐츠 알림은 `{AUTO_CHANNEL_NAME}` 채널로 자동으로 보내 드립니다."),
         color=discord.Color.teal(),
     )
@@ -387,6 +424,9 @@ def build_info_panel_embed() -> discord.Embed:
     if extra:
         value += f"\n\n※ {extra}는 매일 제시간에 따로 알려드립니다."
     embed.add_field(name=f"📅 오늘({DAY_NAMES[now.weekday()]}) 주요 일정", value=value[:1024], inline=False)
+    if panel_admin["id"]:
+        embed.set_author(name=f"문의: {panel_admin['name'] or '관리자'} (관리자)",
+                         url=f"https://discord.com/users/{panel_admin['id']}")
     embed.set_footer(text=f"마지막 갱신: {now.strftime('%Y-%m-%d %H:%M')} (KST) · 일정이 바뀌면 자동으로 갱신됩니다")
     return embed
  
@@ -438,21 +478,78 @@ async def build_latest_embed(board: str) -> discord.Embed:
     return embed
  
  
-def build_help_embed() -> discord.Embed:
+def build_help_embed(is_admin: bool = False) -> discord.Embed:
+    """도움말 (관리자가 열면 관리자 기능 안내까지 함께 표시)"""
+    summary = DAILY_SUMMARY_TIME or "정해진 시간"
     embed = discord.Embed(
         title="🤖 장벽봇 도움말",
-        description=f"아이온2 콘텐츠 알림과 공지·업데이트·CM 아지트 소식을 "
-                    f"`{AUTO_CHANNEL_NAME}` 채널로 24시간 자동 전송해 드립니다.",
+        description=(
+            "안녕하세요, 레기온원 여러분! 저는 **장벽봇**입니다. 🙇\n"
+            "아이온2 보스·콘텐츠 시간과 공식 홈페이지 소식을 **24시간 자동으로** 알려 드리고 있어요.\n"
+            "처음 오셨다면 아래 내용을 한 번만 읽어 주세요!"
+        ),
         color=discord.Color.blue(),
     )
     embed.add_field(
-        name="명령어",
-        value="`/안내패널생성` - 누구나 쓰는 안내 패널 설치 (관리자)\n"
-              "`/패널생성` - 일정 관리 패널 설치 (관리자)\n"
-              "`/일정` - 오늘의 주요 일정\n"
-              "`/도움말` - 봇 안내",
+        name="🔔 1. 자동으로 보내 드리는 알림",
+        value=(
+            f"모든 알림은 `{AUTO_CHANNEL_NAME}` 채널로 보내 드립니다.\n"
+            "• **콘텐츠 시작 전 알림** · 아그로, 어비스균열, 쟁탈전 등이 시작되기 몇 분 전에 알려 드려요.\n"
+            f"• **오늘의 숙제** · 매일 {summary}에 오늘 예정된 주요 일정을 한 번에 정리해 드려요.\n"
+            "• **새 글 알림** · 공식 홈페이지에 공지사항, 업데이트, CM 아지트 새 글이 올라오면 "
+            "3분 안에 알려 드려요."
+        ),
         inline=False,
     )
+    embed.add_field(
+        name="📌 2. 안내패널 사용법",
+        value=(
+            f"`{AUTO_CHANNEL_NAME}` 채널 **맨 아래**(그리고 📌 고정 메시지)에 늘 떠 있는 패널이에요.\n"
+            "버튼을 누르시면 **나에게만 보이는 창**으로 열리니 편하게 눌러 보셔도 됩니다.\n"
+            "• 📅 **오늘의 주요 일정** · 오늘 있는 보스/콘텐츠를 시간순으로 보여 드려요.\n"
+            "• 📢 **공지사항** · 공식 공지 최신 5개와 바로가기 링크\n"
+            "• 🚀 **업데이트** · 최신 패치노트 5개와 바로가기 링크\n"
+            "• 🏠 **CM 아지트** · 주간 업데이트 뉴스 등 CM 소식 5개\n"
+            "• ❓ **도움말** · 지금 보고 계신 이 안내예요."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="⌨️ 3. 채팅창에서 쓰는 명령어",
+        value=(
+            "채팅창에 `/`를 입력하시면 목록이 나와요.\n"
+            "• `/일정` · 오늘의 주요 일정 보기\n"
+            "• `/도움말` · 이 도움말 보기"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="❓ 4. 이럴 땐 이렇게 해 주세요",
+        value=(
+            f"• **알림이 안 와요** → `{AUTO_CHANNEL_NAME}` 채널의 알림 설정이 '모든 메시지'인지 확인해 주세요.\n"
+            "• **시간이 실제와 달라요** → 점검 후 시간이 바뀌었을 수 있어요. 관리자에게 알려 주시면 바로 고쳐 드려요.\n"
+            "• **버튼을 눌러도 반응이 없어요** → 디스코드를 껐다 켠 뒤 다시 눌러 주세요.\n"
+            "• **명령어가 안 보여요** → 디스코드를 완전히 종료했다가 다시 실행해 주세요."
+        ),
+        inline=False,
+    )
+    if is_admin:
+        embed.add_field(
+            name="🔒 5. 관리자 기능 (관리자에게만 보이는 내용)",
+            value=(
+                "• `/패널생성` · **나에게만 보이는 DM(개인 메시지)**으로 일정 관리 패널을 보내 드려요. "
+                "DM에 계속 남아 있어서 언제든 열어 쓰실 수 있어요.\n"
+                "• `/관리패널` · 지금 채널에서 **나에게만 보이는** 임시 관리 패널을 열어요. (창을 닫으면 사라져요)\n"
+                "• `/안내패널생성` · 지금 채널에 누구나 쓰는 안내패널을 설치하고 📌 고정해요.\n"
+                "• **일정 수정 방법** · ⚙️ 일정 수정 → 콘텐츠 선택 → ① 요일 선택 → "
+                "② 시간·알림·문구 입력 → 미리보기 확인 (자동 저장)\n"
+                "• **아그로** · 점검 후 🐲 아그로 젠 시간 수정 버튼에 첫 젠 시간 하나만 넣으면 "
+                "12시간 뒤 시간은 자동으로 계산돼요.\n"
+                "• DM 관리자 패널과 거기 붙은 **백업 파일은 지우지 마세요.** 재배포 후 일정 복원에 쓰여요."
+            ),
+            inline=False,
+        )
+    embed.set_footer(text="궁금한 점이나 불편한 점이 있으시면 언제든 관리자에게 말씀해 주세요! 😊")
     return embed
  
  
@@ -462,8 +559,7 @@ def build_help_embed() -> discord.Embed:
 async def refresh_all_panels():
     for (ch_id, msg_id), kind in list(panel_messages.items()):
         try:
-            ch = bot.get_channel(ch_id) or await bot.fetch_channel(ch_id)
-            msg = ch.get_partial_message(msg_id)
+            msg = bot.get_partial_messageable(ch_id).get_partial_message(msg_id)
             if kind == "admin":
                 await msg.edit(embed=build_panel_embed(), view=PanelView(), attachments=[backup_file()])
             else:
@@ -474,10 +570,16 @@ async def refresh_all_panels():
             logger.warning(f"패널 갱신 실패 ({ch_id}/{msg_id}): {e}")
  
  
+def remember_admin_panel(message: discord.Message | None):
+    """채널에 설치된 관리자 패널만 기억 (나에게만 보이는 /관리패널 창은 제외)"""
+    if message is None or message.flags.ephemeral:
+        return
+    panel_messages[(message.channel.id, message.id)] = "admin"
+ 
+ 
 async def commit_changes(panel_message: discord.Message | None = None):
     save_local()
-    if panel_message:
-        panel_messages[(panel_message.channel.id, panel_message.id)] = "admin"
+    remember_admin_panel(panel_message)
     await refresh_all_panels()
  
  
@@ -701,18 +803,19 @@ class PanelView(discord.ui.View):
  
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         # 이 패널의 모든 버튼은 관리자만 사용 가능
-        if is_manager(interaction):
+        # (DM 패널은 /패널생성 을 실행한 관리자 본인에게만 보내지므로 허용)
+        if interaction.guild is None or is_manager(interaction):
             return True
         await interaction.response.send_message(
             "🔒 이 패널은 **관리자 전용**입니다.\n"
-            "일정·공지사항·업데이트·CM 아지트는 **📌 장벽봇 안내** 패널에서 누구나 확인하실 수 있습니다.",
+            "일정·공지사항·업데이트·CM 아지트는 **📌 장벽봇 안내패널**에서 누구나 확인하실 수 있습니다.",
             ephemeral=True)
         return False
  
     @discord.ui.button(label="일정 새로고침", emoji="🔄", row=0,
                        style=discord.ButtonStyle.primary, custom_id="btn_refresh_schedule")
     async def refresh_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        panel_messages[(interaction.channel_id, interaction.message.id)] = "admin"
+        remember_admin_panel(interaction.message)
         await interaction.response.edit_message(
             embed=build_panel_embed(), view=self, attachments=[backup_file()])
         await refresh_all_panels()   # 안내 패널도 함께 최신화
@@ -720,7 +823,7 @@ class PanelView(discord.ui.View):
     @discord.ui.button(label="일정 수정", emoji="⚙️", row=0,
                        style=discord.ButtonStyle.success, custom_id="btn_edit_schedule")
     async def edit_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        panel_messages[(interaction.channel_id, interaction.message.id)] = "admin"
+        remember_admin_panel(interaction.message)
         await interaction.response.send_message(
             SELECT_GUIDE, view=ContentSelectView(interaction.message), ephemeral=True)
  
@@ -730,7 +833,7 @@ class PanelView(discord.ui.View):
         if "agro" not in contents:
             await interaction.response.send_message("⚠️ 아그로 일정을 찾을 수 없습니다.", ephemeral=True)
             return
-        panel_messages[(interaction.channel_id, interaction.message.id)] = "admin"
+        remember_admin_panel(interaction.message)
         await interaction.response.send_modal(
             ContentTimeModal("agro", interaction.message, from_panel=True))
  
@@ -768,6 +871,12 @@ class InfoPanelView(discord.ui.View):
     async def cm_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True, thinking=True)
         await interaction.followup.send(embed=await build_latest_embed("cm_story"), ephemeral=True)
+ 
+    @discord.ui.button(label="도움말", emoji="❓", row=1,
+                       style=discord.ButtonStyle.success, custom_id="btn_help")
+    async def help_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(
+            embed=build_help_embed(is_manager(interaction)), ephemeral=True)
  
     async def on_error(self, interaction: discord.Interaction, error: Exception, item):
         logger.error(f"안내 패널 오류 ({getattr(item, 'custom_id', item)}): {error}")
@@ -917,7 +1026,10 @@ async def before_schedule_alerts():
 @bot.event
 async def on_ready():
     logger.info(f"봇 로그인 완료: {bot.user} (ID: {bot.user.id}) / 서버 {len(bot.guilds)}개")
+    first = not schedule_loaded
     await restore_schedule()
+    if first:
+        await refresh_all_panels()
     if not check_website_updates.is_running():
         check_website_updates.start()
     if not check_schedule_alerts.is_running():
@@ -927,12 +1039,27 @@ async def on_ready():
 # ─────────────────────────────────────────
 # 슬래시 명령어
 # ─────────────────────────────────────────
-async def install_panel(interaction: discord.Interaction, kind: str):
-    """kind: 'admin'(관리자 패널) / 'info'(안내 패널). 같은 채널의 같은 종류 패널은 정리 후 새로 설치"""
-    channel = interaction.channel
-    await interaction.response.defer(ephemeral=True, thinking=True)
-    titles = ALL_PANEL_TITLES if kind == "admin" else {INFO_PANEL_TITLE}
+# ─────────────────────────────────────────
+# 패널 설치 / 고정 / 맨 아래 유지
+# ─────────────────────────────────────────
+pin_warned = False
+info_bump_tasks: dict[int, asyncio.Task] = {}
+info_bump_lock = asyncio.Lock()
  
+ 
+async def try_pin(msg: discord.Message):
+    global pin_warned
+    try:
+        await msg.pin(reason="장벽봇 안내패널 고정")
+    except discord.Forbidden:
+        if not pin_warned:
+            logger.warning("안내패널 고정 실패: 봇에 '메시지 고정/메시지 관리' 권한이 필요합니다.")
+            pin_warned = True
+    except Exception as e:
+        logger.warning(f"안내패널 고정 실패: {e}")
+ 
+ 
+async def clear_old_panels(channel, titles) -> int:
     removed = 0
     try:
         async for msg in channel.history(limit=50):
@@ -943,41 +1070,130 @@ async def install_panel(interaction: discord.Interaction, kind: str):
                 removed += 1
     except discord.Forbidden:
         pass
+    return removed
  
+ 
+async def send_info_panel(channel) -> discord.Message:
+    msg = await channel.send(embed=build_info_panel_embed(), view=InfoPanelView())
+    panel_messages[(channel.id, msg.id)] = "info"
+    await try_pin(msg)
+    return msg
+ 
+ 
+async def bump_info_panel(channel_id: int):
+    """채널에 새 메시지가 올라오면 5초 뒤 안내패널을 맨 아래로 다시 올림 (연속 메시지는 한 번만)"""
     try:
-        if kind == "admin":
-            new_msg = await channel.send(embed=build_panel_embed(), view=PanelView(), file=backup_file())
-        else:
-            new_msg = await channel.send(embed=build_info_panel_embed(), view=InfoPanelView())
-        panel_messages[(channel.id, new_msg.id)] = kind
-    except discord.Forbidden:
-        await interaction.followup.send(
-            "⚠️ 이 채널에 메시지(또는 파일)를 보낼 권한이 없습니다. 봇 권한을 확인해 주세요.", ephemeral=True)
+        await asyncio.sleep(5)
+        async with info_bump_lock:
+            old = [k for k, v in panel_messages.items() if v == "info" and k[0] == channel_id]
+            if not old:
+                return
+            ch = bot.get_channel(channel_id)
+            if ch is None:
+                return
+            await send_info_panel(ch)
+            for key in old:
+                panel_messages.pop(key, None)
+                try:
+                    await ch.get_partial_message(key[1]).delete()
+                except discord.NotFound:
+                    pass
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        logger.warning(f"안내패널 맨 아래 이동 실패: {e}")
+ 
+ 
+@bot.event
+async def on_message(message: discord.Message):
+    if message.guild is None:
         return
+    # 고정할 때 생기는 "메시지를 고정했습니다" 안내는 지저분하니 바로 삭제
+    if message.type == discord.MessageType.pins_add and message.author.id == bot.user.id:
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        return
+    # 안내패널 자기 자신은 무시
+    if (message.author.id == bot.user.id and message.embeds
+            and message.embeds[0].title in ALL_INFO_TITLES):
+        return
+    # 안내패널이 있는 채널이면 패널을 맨 아래로
+    if any(v == "info" and k[0] == message.channel.id for k, v in panel_messages.items()):
+        task = info_bump_tasks.get(message.channel.id)
+        if task and not task.done():
+            task.cancel()
+        info_bump_tasks[message.channel.id] = asyncio.create_task(bump_info_panel(message.channel.id))
  
-    note = f" (이전 패널 {removed}개 정리)" if removed else ""
-    if kind == "admin":
-        msg = (f"✅ **관리자 패널**을 설치했습니다.{note}\n"
-               "💡 관리자 패널은 관리자만 볼 수 있는 채널에 두시는 것을 추천드립니다. "
-               "(버튼은 어디에 있든 관리자만 사용할 수 있습니다)\n"
-               "⚠️ 패널에 붙은 백업 파일은 지우지 마세요. 재배포 후 일정 복원에 사용됩니다.")
-    else:
-        msg = f"✅ 누구나 사용하는 **안내 패널**을 설치했습니다.{note}"
-    await interaction.followup.send(msg, ephemeral=True)
  
- 
-@bot.tree.command(name="패널생성", description="이 채널에 일정 관리 패널(관리자 전용)을 설치합니다.")
+@bot.tree.command(name="패널생성", description="나에게만 보이는 DM으로 일정 관리 패널을 보내 드립니다. (관리자 전용)")
 @app_commands.guild_only()
 @app_commands.default_permissions(manage_guild=True)
 async def create_panel(interaction: discord.Interaction):
-    await install_panel(interaction, "admin")
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    user = interaction.user
+ 
+    try:
+        dm = user.dm_channel or await user.create_dm()
+        removed = await clear_old_panels(dm, ALL_PANEL_TITLES)
+        new_msg = await dm.send(embed=build_panel_embed(), view=PanelView(), file=backup_file())
+    except discord.Forbidden:
+        await interaction.followup.send(
+            "⚠️ DM(개인 메시지)을 보낼 수 없습니다.\n"
+            "서버 이름 클릭 → **개인정보 보호 설정** → **다이렉트 메시지** 를 켜 주신 뒤 다시 실행해 주세요.\n\n"
+            "그동안은 아래의 **나에게만 보이는 관리 패널**을 사용하실 수 있습니다.",
+            embed=build_panel_embed(), view=PanelView(), ephemeral=True)
+        return
+ 
+    # 서버 채널에 공개로 설치돼 있던 예전 관리자 패널은 정리
+    for (ch_id, msg_id), kind in list(panel_messages.items()):
+        if kind == "admin" and ch_id != dm.id:
+            try:
+                await bot.get_partial_messageable(ch_id).get_partial_message(msg_id).delete()
+                removed += 1
+            except Exception:
+                pass
+            panel_messages.pop((ch_id, msg_id), None)
+ 
+    panel_messages[(dm.id, new_msg.id)] = "admin"
+    panel_admin.update(id=user.id, name=user.display_name)
+    await refresh_all_panels()   # 안내패널에 관리자 문의 표시
+ 
+    note = f"\n(이전 관리자 패널 {removed}개 정리)" if removed else ""
+    await interaction.followup.send(
+        f"✅ **나에게만 보이는 DM**으로 관리자 패널을 보내 드렸습니다. → {new_msg.jump_url}{note}\n"
+        "⚠️ DM의 관리자 패널과 백업 파일은 지우지 마세요. 재배포 후 일정 복원에 쓰입니다.",
+        ephemeral=True)
  
  
-@bot.tree.command(name="안내패널생성", description="이 채널에 누구나 쓰는 안내 패널(일정·공지·업데이트·CM 아지트)을 설치합니다.")
+@bot.tree.command(name="관리패널", description="나에게만 보이는 일정 관리 패널을 엽니다. (관리자 전용)")
+@app_commands.guild_only()
+@app_commands.default_permissions(manage_guild=True)
+async def open_admin_panel(interaction: discord.Interaction):
+    await interaction.response.send_message(
+        "🔒 **나에게만 보이는 관리 패널**입니다. (창을 닫으면 사라져요)",
+        embed=build_panel_embed(), view=PanelView(), ephemeral=True)
+ 
+ 
+@bot.tree.command(name="안내패널생성", description="이 채널에 누구나 쓰는 장벽봇 안내패널을 설치하고 고정합니다.")
 @app_commands.guild_only()
 @app_commands.default_permissions(manage_guild=True)
 async def create_info_panel(interaction: discord.Interaction):
-    await install_panel(interaction, "info")
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    channel = interaction.channel
+    removed = await clear_old_panels(channel, ALL_INFO_TITLES)
+    try:
+        await send_info_panel(channel)
+    except discord.Forbidden:
+        await interaction.followup.send(
+            "⚠️ 이 채널에 메시지를 보낼 권한이 없습니다. 봇 권한을 확인해 주세요.", ephemeral=True)
+        return
+    note = f" (이전 안내패널 {removed}개 정리)" if removed else ""
+    await interaction.followup.send(
+        f"✅ **장벽봇 안내패널**을 설치하고 📌 고정했습니다.{note}\n"
+        "채널에 새 메시지가 올라와도 안내패널은 항상 **맨 아래**로 자동으로 다시 올라옵니다.",
+        ephemeral=True)
  
  
 @bot.tree.command(name="일정", description="오늘의 주요 일정을 확인합니다.")
@@ -987,7 +1203,7 @@ async def schedule_command(interaction: discord.Interaction):
  
 @bot.tree.command(name="도움말", description="장벽봇 사용 방법을 확인합니다.")
 async def help_command(interaction: discord.Interaction):
-    await interaction.response.send_message(embed=build_help_embed(), ephemeral=True)
+    await interaction.response.send_message(embed=build_help_embed(is_manager(interaction)), ephemeral=True)
  
  
 @bot.tree.error
