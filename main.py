@@ -1,3 +1,23 @@
+
+박현준, 연결됨
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Main · PY
 import os
 import asyncio
 import logging
@@ -6,7 +26,6 @@ from zoneinfo import ZoneInfo
 import discord
 from discord.ext import commands, tasks
 import aiohttp
-from bs4 import BeautifulSoup
 from aiohttp import web
  
 # 로깅 설정
@@ -18,29 +37,144 @@ TOKEN = os.environ.get("DISCORD_TOKEN")
 AUTO_CHANNEL_NAME = "🤖｜장벽봇"
 KST = ZoneInfo("Asia/Seoul")
  
-# 크롤링 타겟 URL
-NOTICE_URL = "https://aion2.plaync.com/ko-kr/board/notice/list"
-UPDATE_URL = "https://aion2.plaync.com/ko-kr/board/update/list"
+# PlayNC 게시판 API (공지/업데이트 목록은 이 API로 불러와야 실제 게시글이 나옴)
+API_BASE = "https://api-community.plaync.com/aion2/board"
+BOARDS = {
+    "notice": {
+        "api_key": "notice_ko",
+        "view_url": "https://aion2.plaync.com/ko-kr/board/notice/view?articleId={id}",
+        "label": "공지사항",
+        "alert_title": "📢 [공지사항] 새 글이 등록되었습니다!",
+        "color": discord.Color.blue(),
+    },
+    "update": {
+        "api_key": "update_ko",
+        "view_url": "https://aion2.plaync.com/ko-kr/board/update/view?articleId={id}",
+        "label": "업데이트",
+        "alert_title": "🚀 [업데이트] 새 패치노트가 등록되었습니다!",
+        "color": discord.Color.green(),
+    },
+}
  
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept": "application/json, text/plain, */*",
     "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
-    "Referer": "https://aion2.plaync.com/"
+    "Origin": "https://aion2.plaync.com",
+    "Referer": "https://aion2.plaync.com/",
 }
  
-# 메모리 상태 변수
-last_notice_id = None
-last_update_id = None
+# 이미 본 게시글 ID 저장 (게시판별)
+seen_ids = {"notice": None, "update": None}
 last_alert_time = ""
  
+SCHEDULE_TEXT = "• 카이라/아그로: 03:00 / 09:00 / 21:00\n• 어비스균열: 19:00 / 22:00"
  
-# 봇 클래스: 슬래시 명령어 동기화는 시작 시 1회만
+ 
+# ─────────────────────────────────────────
+# 게시판 API 호출
+# ─────────────────────────────────────────
+async def fetch_board_posts(session, board, size=10):
+    info = BOARDS[board]
+    url = (f"{API_BASE}/{info['api_key']}/article/search/moreArticle"
+           f"?isVote=true&moreSize={size}&moreDirection=BEFORE&previousArticleId=0")
+    try:
+        async with session.get(url, headers=HEADERS, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            if resp.status != 200:
+                logger.warning(f"{info['label']} 요청 실패: HTTP {resp.status}")
+                return None
+            data = await resp.json(content_type=None)
+            posts = []
+            for item in data.get("contentList", []):
+                post_id = item.get("id")
+                if not post_id:
+                    continue
+                posts.append({
+                    "id": post_id,
+                    "title": item.get("title") or "새 게시글",
+                    "url": info["view_url"].format(id=post_id),
+                })
+            return posts
+    except Exception as e:
+        logger.error(f"{info['label']} 불러오기 예외: {e}")
+        return None
+ 
+ 
+# ─────────────────────────────────────────
+# 임베드 생성 함수 (명령어/패널 버튼 공용)
+# ─────────────────────────────────────────
+def build_schedule_embed():
+    date_str = datetime.now(KST).strftime("%Y년 %m월 %d일")
+    embed = discord.Embed(
+        title=f"📝 [오늘의 숙제] {date_str}",
+        description="아이온2 레기온원 여러분! 오늘 진행되는 주요 콘텐츠 일정입니다.",
+        color=discord.Color.gold(),
+    )
+    embed.add_field(name="⚔️ 오늘 예정된 주요 콘텐츠", value=SCHEDULE_TEXT, inline=False)
+    return embed
+ 
+ 
+def build_help_embed():
+    embed = discord.Embed(
+        title="🤖 장벽봇 도움말",
+        description="24시간 자동으로 아이온2 알림을 전송하는 봇입니다.",
+        color=discord.Color.blue(),
+    )
+    embed.add_field(
+        name="명령어 목록",
+        value="`/패널` - 버튼 패널 열기\n`/일정` - 오늘의 콘텐츠 일정\n`/도움말` - 봇 안내",
+        inline=False,
+    )
+    return embed
+ 
+ 
+async def build_latest_embed(board):
+    info = BOARDS[board]
+    async with aiohttp.ClientSession() as session:
+        posts = await fetch_board_posts(session, board, size=5)
+    embed = discord.Embed(title=f"📋 최신 {info['label']}", color=info["color"])
+    if not posts:
+        embed.description = "지금은 게시글을 불러올 수 없습니다. 잠시 후 다시 시도해 주세요."
+    else:
+        embed.description = "\n".join(f"• [{p['title']}]({p['url']})" for p in posts)
+    return embed
+ 
+ 
+# ─────────────────────────────────────────
+# /패널 버튼 (봇이 재시작돼도 버튼이 계속 동작하도록 timeout=None + custom_id)
+# ─────────────────────────────────────────
+class PanelView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+ 
+    @discord.ui.button(label="오늘 일정", emoji="📝", style=discord.ButtonStyle.primary, custom_id="panel:schedule")
+    async def schedule_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(embed=build_schedule_embed(), ephemeral=True)
+ 
+    @discord.ui.button(label="최신 공지", emoji="📢", style=discord.ButtonStyle.secondary, custom_id="panel:notice")
+    async def notice_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.followup.send(embed=await build_latest_embed("notice"), ephemeral=True)
+ 
+    @discord.ui.button(label="최신 업데이트", emoji="🚀", style=discord.ButtonStyle.secondary, custom_id="panel:update")
+    async def update_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.followup.send(embed=await build_latest_embed("update"), ephemeral=True)
+ 
+    @discord.ui.button(label="도움말", emoji="❓", style=discord.ButtonStyle.secondary, custom_id="panel:help")
+    async def help_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(embed=build_help_embed(), ephemeral=True)
+ 
+ 
+# ─────────────────────────────────────────
+# 봇 본체
+# ─────────────────────────────────────────
 class BarrierBot(commands.Bot):
     async def setup_hook(self):
+        self.add_view(PanelView())
         try:
             synced = await self.tree.sync()
-            logger.info(f"슬래시 명령어 {len(synced)}개 동기화 완료.")
+            logger.info(f"슬래시 명령어 {len(synced)}개 동기화 완료: {[c.name for c in synced]}")
         except discord.HTTPException as e:
             logger.warning(f"명령어 동기화 실패 (봇 구동은 유지됨): {e}")
  
@@ -49,7 +183,6 @@ intents = discord.Intents.default()
 bot = BarrierBot(command_prefix="!", intents=intents)
  
  
-# Render 포트 바인딩용 웹서버
 async def start_web_server():
     app = web.Application()
     app.router.add_get('/', lambda r: web.Response(text="Bot Alive"))
@@ -61,18 +194,16 @@ async def start_web_server():
     logger.info(f"웹 서버가 포트 {port}에서 정상 시작되었습니다.")
  
  
-# 디스코드 접속 가능 여부 진단
 async def diagnose_ip():
     try:
         async with aiohttp.ClientSession() as s:
-            async with s.get("https://discord.com/api/v10/gateway", timeout=10) as r:
+            async with s.get("https://discord.com/api/v10/gateway", timeout=aiohttp.ClientTimeout(total=10)) as r:
                 body = await r.text()
                 logger.info(f"[진단] status={r.status} body={body[:200]}")
     except Exception as e:
         logger.error(f"[진단] 요청 실패: {e}")
  
  
-# 대상 채널 검색
 def get_target_channel():
     for guild in bot.guilds:
         for channel in guild.text_channels:
@@ -81,74 +212,41 @@ def get_target_channel():
     return None
  
  
-# 공지사항 / 업데이트 크롤링
-async def fetch_latest_board_item(session, url):
-    try:
-        async with session.get(url, headers=HEADERS, timeout=10) as resp:
-            if resp.status != 200:
-                logger.warning(f"게시판 요청 실패 ({url}): HTTP 상태 코드 {resp.status}")
-                return None
- 
-            html = await resp.text()
-            soup = BeautifulSoup(html, 'html.parser')
- 
-            items = soup.select('.board-list a, .list-item a, article a, table.board_list a')
-            if not items:
-                items = [a for a in soup.find_all('a', href=True) if '/board/' in a['href']]
- 
-            if items:
-                first_item = items[0]
-                href = first_item.get('href', '')
-                title = first_item.get_text(strip=True) or "새 게시글"
- 
-                if not href.startswith("http"):
-                    full_url = f"https://aion2.plaync.com{href}" if href.startswith("/") else f"https://aion2.plaync.com/{href}"
-                else:
-                    full_url = href
- 
-                return {"id": full_url, "title": title, "url": full_url}
-    except Exception as e:
-        logger.error(f"크롤링 중 예외 발생 ({url}): {e}")
-    return None
- 
- 
 # 1. 신규 게시글 모니터링 루프 (3분 주기)
 @tasks.loop(minutes=3)
 async def check_website_updates():
-    global last_notice_id, last_update_id
     try:
         channel = get_target_channel()
         if not channel:
+            logger.warning(f"'{AUTO_CHANNEL_NAME}' 채널을 찾을 수 없습니다.")
             return
  
         async with aiohttp.ClientSession() as session:
-            notice = await fetch_latest_board_item(session, NOTICE_URL)
-            if notice:
-                if last_notice_id is None:
-                    last_notice_id = notice['id']
-                    logger.info(f"[초기화] 공지사항 기준글 설정: {notice['title']}")
-                elif last_notice_id != notice['id']:
-                    last_notice_id = notice['id']
-                    embed = discord.Embed(
-                        title="📢 [공지사항] 새 글이 등록되었습니다!",
-                        description=f"**[{notice['title']}]({notice['url']})**",
-                        color=discord.Color.blue()
-                    )
-                    await channel.send(embed=embed)
+            for board, info in BOARDS.items():
+                posts = await fetch_board_posts(session, board, size=10)
+                if not posts:
+                    continue
  
-            update = await fetch_latest_board_item(session, UPDATE_URL)
-            if update:
-                if last_update_id is None:
-                    last_update_id = update['id']
-                    logger.info(f"[초기화] 업데이트 기준글 설정: {update['title']}")
-                elif last_update_id != update['id']:
-                    last_update_id = update['id']
+                current_ids = {p["id"] for p in posts}
+ 
+                # 첫 실행: 지금 있는 글들을 기준으로 저장만 함
+                if seen_ids[board] is None:
+                    seen_ids[board] = current_ids
+                    logger.info(f"[초기화] {info['label']} 기준글 설정: {posts[0]['title']}")
+                    continue
+ 
+                # 처음 보는 글만 알림 (오래된 글부터 순서대로)
+                new_posts = [p for p in posts if p["id"] not in seen_ids[board]]
+                for p in reversed(new_posts):
                     embed = discord.Embed(
-                        title="🚀 [업데이트] 새 패치노트가 등록되었습니다!",
-                        description=f"**[{update['title']}]({update['url']})**",
-                        color=discord.Color.green()
+                        title=info["alert_title"],
+                        description=f"**[{p['title']}]({p['url']})**",
+                        color=info["color"],
                     )
                     await channel.send(embed=embed)
+                    logger.info(f"[알림] {info['label']} 새 글: {p['title']}")
+ 
+                seen_ids[board] |= current_ids
  
     except Exception as e:
         logger.error(f"check_website_updates 루프 예외 발생: {e}")
@@ -159,9 +257,7 @@ async def check_website_updates():
 async def check_schedule_alerts():
     global last_alert_time
     try:
-        now = datetime.now(KST)
-        current_time_str = now.strftime("%H:%M")
- 
+        current_time_str = datetime.now(KST).strftime("%H:%M")
         if current_time_str == last_alert_time:
             return
  
@@ -195,32 +291,27 @@ async def on_ready():
         check_schedule_alerts.start()
  
  
-@bot.tree.command(name="일정", description="오늘의 주요 주간 컨텐츠 일정을 확인합니다.")
-async def schedule_command(interaction: discord.Interaction):
-    now = datetime.now(KST)
-    date_str = now.strftime("%Y년 %m월 %d일")
+# ─────────────────────────────────────────
+# 슬래시 명령어
+# ─────────────────────────────────────────
+@bot.tree.command(name="패널", description="장벽봇 버튼 패널을 엽니다.")
+async def panel_command(interaction: discord.Interaction):
     embed = discord.Embed(
-        title=f"📝 [오늘의 숙제] {date_str}",
-        description="아이온2 레기온원 여러분! 오늘 저녁 진행되는 주요 주간 콘텐츠 일정입니다.",
-        color=discord.Color.gold()
+        title="🛡️ 장벽봇 패널",
+        description="아래 버튼을 눌러 원하는 정보를 확인하세요.\n(결과는 누른 사람에게만 보입니다)",
+        color=discord.Color.purple(),
     )
-    embed.add_field(
-        name="⚔️ 오늘 예정된 주요 주간 콘텐츠",
-        value="• 카이라/아그로: 03:00 / 09:00 / 21:00\n• 어비스균열: 19:00 / 22:00",
-        inline=False
-    )
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(embed=embed, view=PanelView())
+ 
+ 
+@bot.tree.command(name="일정", description="오늘의 주요 콘텐츠 일정을 확인합니다.")
+async def schedule_command(interaction: discord.Interaction):
+    await interaction.response.send_message(embed=build_schedule_embed())
  
  
 @bot.tree.command(name="도움말", description="장벽봇 사용 방법을 확인합니다.")
 async def help_command(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="🤖 장벽봇 도움말",
-        description="24시간 자동으로 아이온2 알림을 전송하는 봇입니다.",
-        color=discord.Color.blue()
-    )
-    embed.add_field(name="명령어 목록", value="`/일정` - 오늘의 컨텐츠 일정 확인\n`/도움말` - 봇 안내 확인", inline=False)
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(embed=build_help_embed())
  
  
 async def main():
@@ -238,3 +329,4 @@ async def main():
  
 if __name__ == "__main__":
     asyncio.run(main())
+ 
