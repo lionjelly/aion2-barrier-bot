@@ -1,23 +1,3 @@
-
-박현준, 연결됨
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-Main · PY
 import os
 import asyncio
 import logging
