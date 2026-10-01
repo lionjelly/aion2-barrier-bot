@@ -23,39 +23,76 @@ TOKEN = os.environ.get("DISCORD_TOKEN")
 PORT = int(os.environ.get("PORT", 10000))
 KST = ZoneInfo(os.environ.get("TZ", "Asia/Seoul"))
 AUTO_CHANNEL_NAME = "🤖｜장벽봇"
-PANEL_TITLE = "🛡️ 장벽봇 · 주간 콘텐츠 시간표"
+PANEL_TITLE = "⚙️ 장벽봇 일정 관리 패널 · 시간 수정 가능"
+# 예전 버전 패널 제목 (재설치 시 정리 + 백업 복원에 사용)
+LEGACY_PANEL_TITLES = {
+    "🛡️ 장벽봇 · 주간 콘텐츠 시간표",
+    "🛡️ 장벽봇 · 보스 & 콘텐츠 시간표",
+    "🛡️ 장벽봇 패널",
+}
+ALL_PANEL_TITLES = LEGACY_PANEL_TITLES | {PANEL_TITLE}
+INFO_PANEL_TITLE = "📌 장벽봇 안내 · 누구나 사용 가능"
+ 
 SCHEDULE_FILE = "schedule.json"
 BACKUP_FILENAME = "장벽봇_일정백업.json"   # 패널에 붙는 백업 파일 (재배포 후 복원용)
-DAILY_SUMMARY_TIME = "19:00"              # 매일 오늘 일정 요약 알림 (끄려면 None)
+DAILY_SUMMARY_TIME = "19:00"              # 매일 '오늘의 주요 일정' 요약 (끄려면 None)
  
 DAY_NAMES = ["월", "화", "수", "목", "금", "토", "일"]
-DEFAULT_TEMPLATE = "📢 **[{이름}]** {분}분 후 시작합니다! ({시간} 시작)"
  
 # ─────────────────────────────────────────
-# 콘텐츠 기본 시간표 (주간 콘텐츠 일정 이미지 기준, 어비스균열 21:20 반영)
+# 콘텐츠 기본 시간표
 # days: 0=월 1=화 2=수 3=목 4=금 5=토 6=일
+# important: True면 '오늘의 주요 일정'(패널·19시 요약)에 표시
+# repeat_hours: 값이 있으면 기준 시간 하나만 입력해도 그 간격으로 자동 반복
+# comment: 알림에 함께 나가는 안내 문구 (패널에서 수정 가능)
 # ─────────────────────────────────────────
 DEFAULT_CONTENTS = {
-    "abyss_rift": {"name": "어비스균열", "emoji": "🌀", "days": [1, 3],
-                   "times": ["21:20"], "before": 10},
-    "abyss_boss": {"name": "어비스보스", "emoji": "👹", "days": [2, 5],
-                   "times": ["22:30"], "before": 10},
-    "nahma":      {"name": "나흐마", "emoji": "🗡️", "days": [4, 6],
-                   "times": ["22:00"], "before": 10},
-    "atijaeng":   {"name": "아티쟁", "emoji": "🏰", "days": [2, 5],
-                   "times": ["22:00"], "before": 10},
-    "conquest":   {"name": "쟁탈전", "emoji": "⚔️", "days": [0, 3, 5],
-                   "times": ["20:00", "23:00"], "before": 10},
-    "kaira":      {"name": "카이라", "emoji": "👑", "days": [0, 1, 2, 3, 4, 5, 6],
-                   "times": ["01:00", "05:00", "09:00", "13:00", "17:00", "21:00"], "before": 5},
+    "agro": {
+        "name": "아그로", "emoji": "🐲", "days": [0, 1, 2, 3, 4, 5, 6],
+        "times": ["05:00", "17:00"], "before": 10, "important": True, "repeat_hours": 12,
+        "comment": "필드 보스 아그로가 곧 등장합니다! 미리 위치로 이동해서 파티를 꾸려 주세요. "
+                   "점검 이후에는 젠 시간이 바뀔 수 있으니 패널 시간표도 함께 확인 부탁드립니다. 🙏",
+    },
+    "abyss_rift": {
+        "name": "어비스균열", "emoji": "🌀", "days": [1, 3],
+        "times": ["21:20"], "before": 10, "important": True,
+        "comment": "어비스 균열이 곧 열립니다! 균열을 봉쇄하고 보상을 획득하실 수 있도록 "
+                   "미리 접속해서 준비해 주세요.",
+    },
+    "abyss_boss": {
+        "name": "어비스보스", "emoji": "👹", "days": [2, 5],
+        "times": ["22:30"], "before": 10, "important": True,
+        "comment": "강력한 어비스 보스가 곧 등장합니다! 물약과 버프를 미리 챙기시고 "
+                   "레기온원분들과 함께 처치해 주세요.",
+    },
+    "nahma": {
+        "name": "나흐마", "emoji": "🗡️", "days": [4, 6],
+        "times": ["22:00"], "before": 10, "important": True,
+        "comment": "나흐마의 힘을 두고 경쟁이 곧 시작됩니다! 미리 접속해서 파티와 장비를 점검해 주세요.",
+    },
+    "atijaeng": {
+        "name": "아티쟁", "emoji": "🏰", "days": [2, 5],
+        "times": ["22:00"], "before": 10, "important": True,
+        "comment": "아티팩트를 차지하기 위한 전투가 곧 시작됩니다! 레기온 집결 장소로 미리 모여 주세요.",
+    },
+    "conquest": {
+        "name": "쟁탈전", "emoji": "⚔️", "days": [0, 3, 5],
+        "times": ["20:00", "23:00"], "before": 10, "important": True,
+        "comment": "영지를 차지하기 위한 대규모 전투가 곧 시작됩니다! "
+                   "레기온원 여러분은 미리 접속해서 집결해 주세요.",
+    },
+    "kaira": {
+        "name": "카이라", "emoji": "👑", "days": [0, 1, 2, 3, 4, 5, 6],
+        "times": ["01:00", "05:00", "09:00", "13:00", "17:00", "21:00"], "before": 5,
+        "important": False,
+        "comment": "카이라에 도전하실 시간입니다! 참여하실 분은 미리 접속해서 준비해 주세요.",
+    },
 }
-for _c in DEFAULT_CONTENTS.values():
-    _c.setdefault("enabled", True)
-    _c.setdefault("message", DEFAULT_TEMPLATE)
  
 contents: dict[str, dict] = {}
 schedule_loaded = False
-panel_messages: set[tuple[int, int]] = set()   # (channel_id, message_id)
+# 설치된 패널 위치 기억: (channel_id, message_id) → "admin"(관리자 패널) / "info"(안내 패널)
+panel_messages: dict[tuple[int, int], str] = {}
 last_alert_key = ""
  
 # ─────────────────────────────────────────
@@ -79,6 +116,14 @@ BOARDS = {
         "alert_title": "🚀 [업데이트] 새 패치노트가 등록되었습니다!",
         "color": discord.Color.green(),
     },
+    "cm_story": {
+        "api_key": "cm_story_ko",
+        "list_url": "https://aion2.plaync.com/ko-kr/board/cm_story/list",
+        "view_url": "https://aion2.plaync.com/ko-kr/board/cm_story/view?articleId={id}",
+        "label": "CM 아지트",
+        "alert_title": "🏠 [CM 아지트] 새 소식이 등록되었습니다!",
+        "color": discord.Color.orange(),
+    },
 }
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -88,20 +133,24 @@ HEADERS = {
     "Origin": "https://aion2.plaync.com",
     "Referer": "https://aion2.plaync.com/",
 }
-seen_ids = {"notice": None, "update": None}
+seen_ids = {key: None for key in BOARDS}
  
  
 # ─────────────────────────────────────────
 # 시간/요일 도우미
 # ─────────────────────────────────────────
-TIME_RE = re.compile(r"^(\d{1,2})\s*[:：]\s*(\d{2})$")
+TIME_RE = re.compile(r"^(\d{1,2})\s*[:：시]\s*(\d{1,2})?\s*분?$")
  
  
 def normalize_time(text: str):
-    m = TIME_RE.match(text.strip())
+    """'9:05', '09:05', '21시', '21시 20분' → 'HH:MM' / 잘못된 값은 None"""
+    t = text.strip().replace(" ", "")
+    if re.fullmatch(r"\d{1,2}", t):          # '21' → 21:00
+        t = t + ":00"
+    m = TIME_RE.match(t)
     if not m:
         return None
-    h, mi = int(m.group(1)), int(m.group(2))
+    h, mi = int(m.group(1)), int(m.group(2) or 0)
     if h > 23 or mi > 59:
         return None
     return f"{h:02d}:{mi:02d}"
@@ -110,6 +159,18 @@ def normalize_time(text: str):
 def to_minutes(t: str) -> int:
     h, m = t.split(":")
     return int(h) * 60 + int(m)
+ 
+ 
+def from_minutes(total: int) -> str:
+    total %= 1440
+    return f"{total // 60:02d}:{total % 60:02d}"
+ 
+ 
+def expand_repeat(base: str, hours: int) -> list[str]:
+    """기준 시간 하나 → 간격대로 하루 전체 시간 목록 (예: 05:00, 12시간 → 05:00, 17:00)"""
+    step = hours * 60
+    count = max(1, 1440 // step)
+    return sorted({from_minutes(to_minutes(base) + step * i) for i in range(count)})
  
  
 def days_text(days: list[int]) -> str:
@@ -122,39 +183,68 @@ def days_text(days: list[int]) -> str:
     return "·".join(DAY_NAMES[d] for d in sorted(days))
  
  
-def render_message(c: dict, start_time: str) -> str:
-    return (c["message"]
-            .replace("{이름}", c["name"])
-            .replace("{시간}", start_time)
-            .replace("{분}", str(c["before"])))
+def render_alert(c: dict, start_time: str) -> str:
+    """실제로 채널에 나가는 알림 문장"""
+    if c["before"] > 0:
+        head = (f"📢 **[{c['emoji']} {c['name']}]** 시작 **{c['before']}분 전** 안내드립니다!\n"
+                f"⏰ 시작 시간: **{start_time}**")
+    else:
+        head = f"📢 **[{c['emoji']} {c['name']}]** 지금 시작합니다! (⏰ {start_time})"
+    comment = (c.get("comment") or "").strip()
+    # 예전 버전 멘트에 남아 있을 수 있는 {이름} {시간} {분}도 자동 변환
+    comment = (comment.replace("{이름}", c["name"])
+                      .replace("{시간}", start_time)
+                      .replace("{분}", str(c["before"])))
+    return f"{head}\n💬 {comment}" if comment else head
+ 
+ 
+# ─────────────────────────────────────────
+# 데이터 정리 / 저장 / 복원
+# ─────────────────────────────────────────
+def clean_one(key: str, c: dict) -> dict | None:
+    base = DEFAULT_CONTENTS.get(key, {})
+    try:
+        times = sorted({t for t in (normalize_time(x) for x in c["times"]) if t})
+        days = sorted({int(d) for d in c["days"] if 0 <= int(d) <= 6})
+        if not times or not days:
+            return None
+ 
+        comment = c.get("comment")
+        if comment is None:
+            # 예전 버전 데이터(message 필드) 변환: 기본 템플릿이었으면 새 기본 문구로 교체
+            old = str(c.get("message") or "")
+            comment = base.get("comment", "") if (not old or "{이름}" in old) else old
+ 
+        return {
+            "name": str(c.get("name") or base.get("name", key)),
+            "emoji": str(c.get("emoji") or base.get("emoji", "📌")),
+            "days": days,
+            "times": times,
+            "before": max(0, min(180, int(c.get("before", base.get("before", 10))))),
+            "enabled": bool(c.get("enabled", True)),
+            "important": bool(c.get("important", base.get("important", True))),
+            "repeat_hours": int(c.get("repeat_hours", base.get("repeat_hours", 0)) or 0),
+            "comment": str(comment),
+        }
+    except Exception:
+        return None
  
  
 def sanitize_contents(data: dict) -> dict:
-    """불러온 데이터가 깨져 있어도 봇이 죽지 않도록 정리"""
     result = {}
+    # 새로 추가된 기본 콘텐츠(예: 아그로)가 없으면 맨 앞에 자동 추가
+    for key, c in DEFAULT_CONTENTS.items():
+        if key not in data:
+            result[key] = clean_one(key, c)
     for key, c in data.items():
-        try:
-            times = sorted({t for t in (normalize_time(x) for x in c["times"]) if t})
-            days = sorted({int(d) for d in c["days"] if 0 <= int(d) <= 6})
-            if not times or not days:
-                continue
-            result[key] = {
-                "name": str(c["name"]),
-                "emoji": str(c.get("emoji", "📌")),
-                "days": days,
-                "times": times,
-                "before": max(0, min(180, int(c.get("before", 10)))),
-                "enabled": bool(c.get("enabled", True)),
-                "message": str(c.get("message") or DEFAULT_TEMPLATE),
-            }
-        except Exception:
-            continue
-    return result
+        cleaned = clean_one(key, c)
+        if cleaned:
+            result[key] = cleaned
+    # 기본 순서 유지 (기본 콘텐츠 → 직접 추가한 콘텐츠)
+    order = list(DEFAULT_CONTENTS) + [k for k in result if k not in DEFAULT_CONTENTS]
+    return {k: result[k] for k in order if k in result}
  
  
-# ─────────────────────────────────────────
-# 저장 / 복원
-# ─────────────────────────────────────────
 def contents_json() -> str:
     return json.dumps(contents, ensure_ascii=False, indent=2)
  
@@ -173,8 +263,9 @@ def save_local():
  
 async def restore_schedule():
     """
-    시작 시 복원 순서: 1) schedule.json  2) 알림 채널 패널에 붙은 백업 파일  3) 기본 시간표
+    시작 시 복원 순서: 1) schedule.json  2) 관리자 패널에 붙은 백업 파일  3) 기본 시간표
     (Render 무료 플랜은 재배포하면 파일이 지워지므로 2번이 실제 백업 역할)
+    관리자 패널을 별도 관리자 채널에 둬도 찾을 수 있도록 봇이 볼 수 있는 채널을 모두 확인
     """
     global contents, schedule_loaded
     if schedule_loaded:
@@ -183,7 +274,7 @@ async def restore_schedule():
     loaded = None
     try:
         with open(SCHEDULE_FILE, encoding="utf-8") as f:
-            loaded = sanitize_contents(json.load(f)) or None
+            loaded = json.load(f) or None
         if loaded:
             logger.info("[일정] 로컬 파일에서 복원")
     except FileNotFoundError:
@@ -191,91 +282,148 @@ async def restore_schedule():
     except Exception as e:
         logger.warning(f"일정 파일 읽기 실패: {e}")
  
-    for ch in get_target_channels():
+    # 알림 채널을 먼저, 그다음 나머지 채널
+    targets = get_target_channels()
+    others = [ch for g in bot.guilds for ch in g.text_channels if ch not in targets]
+    for ch in targets + others:
+        perms = ch.permissions_for(ch.guild.me)
+        if not (perms.view_channel and perms.read_message_history):
+            continue
         try:
-            async for msg in ch.history(limit=50):
-                if not (msg.author.id == bot.user.id and msg.embeds
-                        and msg.embeds[0].title == PANEL_TITLE):
+            async for msg in ch.history(limit=30):
+                if not (msg.author.id == bot.user.id and msg.embeds):
                     continue
-                panel_messages.add((ch.id, msg.id))
-                if loaded is None:
-                    for att in msg.attachments:
-                        if att.filename == BACKUP_FILENAME:
-                            data = sanitize_contents(json.loads(await att.read()))
-                            if data:
-                                loaded = data
-                                logger.info(f"[일정] #{ch.name} 패널 백업에서 복원")
+                title = msg.embeds[0].title
+                if title == INFO_PANEL_TITLE:
+                    panel_messages[(ch.id, msg.id)] = "info"
+                elif title in ALL_PANEL_TITLES:
+                    panel_messages[(ch.id, msg.id)] = "admin"
+                    if loaded is None:
+                        for att in msg.attachments:
+                            if att.filename == BACKUP_FILENAME:
+                                data = json.loads(await att.read())
+                                if data:
+                                    loaded = data
+                                    logger.info(f"[일정] #{ch.name} 패널 백업에서 복원")
         except Exception as e:
             logger.warning(f"#{ch.name} 패널 검색 실패: {e}")
  
     if loaded is None:
-        loaded = json.loads(json.dumps(DEFAULT_CONTENTS))
+        loaded = {}
         logger.info("[일정] 기본 시간표 사용")
  
-    contents = loaded
+    contents = sanitize_contents(loaded)
     save_local()
     schedule_loaded = True
+    logger.info(f"[패널] 관리자 패널 {list(panel_messages.values()).count('admin')}개, "
+                f"안내 패널 {list(panel_messages.values()).count('info')}개 확인")
  
  
 # ─────────────────────────────────────────
 # 임베드
 # ─────────────────────────────────────────
-def today_lines(weekday: int) -> list[str]:
+def today_lines(weekday: int, important_only: bool = True) -> list[str]:
     items = []
     for c in contents.values():
+        if important_only and not c["important"]:
+            continue
         if weekday in c["days"]:
             for t in c["times"]:
-                items.append((t, f"`{t}` {c['emoji']} {c['name']}" + ("" if c["enabled"] else " (알림 꺼짐)")))
+                off = "" if c["enabled"] else " (알림 꺼짐)"
+                items.append((t, f"`{t}` {c['emoji']} {c['name']}{off}"))
     return [line for _, line in sorted(items)]
+ 
+ 
+def daily_only_names() -> str:
+    names = [f"{c['emoji']} {c['name']}" for c in contents.values() if not c["important"]]
+    return ", ".join(names)
  
  
 def build_panel_embed() -> discord.Embed:
     now = datetime.now(KST)
+    guide = ("> 🔒 **관리자 전용 패널**입니다. (서버 관리 권한 필요)\n"
+             "> **⚙️ 일정 수정** 버튼으로 시간·요일·알림 시기·안내 문구를 바꿀 수 있습니다.\n"
+             "> 점검 후 아그로 젠 시간은 **🐲 아그로 젠 시간 수정** 버튼으로 바로 바꿔 주세요.\n"
+             "> 수정 내용은 모두가 보는 **📌 안내 패널**에도 자동 반영됩니다.\n")
     lines = []
     for c in contents.values():
-        status = f"🔔 {c['before']}분 전" if c["enabled"] else "🔕 알림 꺼짐"
-        lines.append(f"{c['emoji']} **{c['name']}** — {days_text(c['days'])}\n"
+        status = f"🔔 {c['before']}분 전 알림" if c["enabled"] else "🔕 알림 꺼짐"
+        repeat = f" ({c['repeat_hours']}시간 간격)" if c.get("repeat_hours") else ""
+        lines.append(f"{c['emoji']} **{c['name']}** — {days_text(c['days'])}{repeat}\n"
                      f"┗ ⏰ {' · '.join(c['times'])}  |  {status}")
     embed = discord.Embed(
         title=PANEL_TITLE,
-        description="\n".join(lines) or "등록된 콘텐츠가 없습니다.",
+        description=guide + "\n" + ("\n".join(lines) or "등록된 콘텐츠가 없습니다."),
         color=discord.Color.purple(),
     )
     today = today_lines(now.weekday())
-    embed.add_field(
-        name=f"📅 오늘({DAY_NAMES[now.weekday()]}) 일정",
-        value="\n".join(today)[:1024] if today else "오늘은 예정된 콘텐츠가 없습니다.",
-        inline=False,
-    )
-    embed.set_footer(text=f"마지막 새로고침: {now.strftime('%Y-%m-%d %H:%M:%S')} (KST) · 첨부 파일은 일정 백업이니 지우지 마세요")
+    extra = daily_only_names()
+    value = "\n".join(today) if today else "오늘은 예정된 주요 콘텐츠가 없습니다."
+    if extra:
+        value += f"\n\n※ {extra}는 주요 일정에서 제외되며, 매일 제시간에 따로 알려드립니다."
+    embed.add_field(name=f"📅 오늘({DAY_NAMES[now.weekday()]}) 주요 일정", value=value[:1024], inline=False)
+    embed.set_footer(text=f"마지막 새로고침: {now.strftime('%Y-%m-%d %H:%M:%S')} (KST) · "
+                          "첨부 파일은 일정 백업이니 지우지 마세요")
     return embed
  
  
-def build_today_embed(title_prefix: str = "📅 [오늘의 일정]") -> discord.Embed:
+def build_info_panel_embed() -> discord.Embed:
+    """모두가 보는 안내 패널"""
+    now = datetime.now(KST)
+    embed = discord.Embed(
+        title=INFO_PANEL_TITLE,
+        description=("레기온원 여러분, 반갑습니다! 👋\n"
+                     "아래 버튼을 누르시면 **나에게만 보이는 창**으로 바로 확인하실 수 있습니다.\n\n"
+                     "📅 **오늘의 주요 일정** · 오늘 예정된 보스/콘텐츠 시간\n"
+                     "📢 **공지사항** · 아이온2 공식 공지 최신 5개\n"
+                     "🚀 **업데이트** · 최신 패치노트 5개\n"
+                     "🏠 **CM 아지트** · 업데이트 뉴스 등 CM 소식 5개\n\n"
+                     f"새 글과 콘텐츠 알림은 `{AUTO_CHANNEL_NAME}` 채널로 자동으로 보내 드립니다."),
+        color=discord.Color.teal(),
+    )
+    today = today_lines(now.weekday())
+    value = "\n".join(today) if today else "오늘은 예정된 주요 콘텐츠가 없습니다."
+    extra = daily_only_names()
+    if extra:
+        value += f"\n\n※ {extra}는 매일 제시간에 따로 알려드립니다."
+    embed.add_field(name=f"📅 오늘({DAY_NAMES[now.weekday()]}) 주요 일정", value=value[:1024], inline=False)
+    embed.set_footer(text=f"마지막 갱신: {now.strftime('%Y-%m-%d %H:%M')} (KST) · 일정이 바뀌면 자동으로 갱신됩니다")
+    return embed
+ 
+ 
+def build_today_embed(title_prefix: str = "📅 [오늘의 주요 일정]") -> discord.Embed:
     now = datetime.now(KST)
     today = today_lines(now.weekday())
-    embed = discord.Embed(
+    desc = "\n".join(today) if today else "오늘은 예정된 주요 콘텐츠가 없습니다."
+    extra = daily_only_names()
+    if extra:
+        desc += f"\n\n※ {extra}는 매일 제시간에 따로 알려드립니다."
+    return discord.Embed(
         title=f"{title_prefix} {now.strftime('%m월 %d일')} ({DAY_NAMES[now.weekday()]})",
-        description="\n".join(today) if today else "오늘은 예정된 콘텐츠가 없습니다.",
+        description="레기온원 여러분, 오늘 예정된 주요 콘텐츠를 안내해 드립니다!\n\n" + desc,
         color=discord.Color.gold(),
     )
-    return embed
  
  
 def build_editor_embed(key: str) -> discord.Embed:
     c = contents[key]
     embed = discord.Embed(
         title=f"⚙️ {c['emoji']} {c['name']} 설정",
-        description="아래 메뉴/버튼으로 바로 수정하면 **즉시 저장**되고 패널에도 반영됩니다.",
+        description=(
+            "아래 순서대로 수정해 주세요. 바꾸는 즉시 **자동 저장**되고 패널에도 바로 반영됩니다.\n\n"
+            "**1단계** 아래 메뉴에서 알림을 보낼 **요일**을 골라 주세요.\n"
+            "**2단계** **⏰ 시간·알림·문구 수정** 버튼을 눌러 시작 시간, 알림 시기, 안내 문구를 입력해 주세요.\n"
+            "**3단계** 맨 아래 **알림 미리보기**에서 실제로 나갈 알림을 확인해 주세요."
+        ),
         color=discord.Color.green() if c["enabled"] else discord.Color.dark_grey(),
     )
-    embed.add_field(name="① 요일", value=days_text(c["days"]), inline=True)
-    embed.add_field(name="② 시작 시간", value=" · ".join(c["times"]), inline=True)
-    embed.add_field(name="③ 알림 시기", value=f"{c['before']}분 전", inline=True)
-    embed.add_field(name="④ 알림 상태", value="🔔 켜짐" if c["enabled"] else "🔕 꺼짐", inline=True)
-    embed.add_field(name="⑤ 알림 멘트 (원문)", value=c["message"][:1024], inline=False)
-    embed.add_field(name="미리보기", value=render_message(c, c["times"][0])[:1024], inline=False)
-    embed.set_footer(text="멘트에 {이름} {시간} {분} 을 넣으면 자동으로 바뀌어 들어갑니다.")
+    repeat = f" ({c['repeat_hours']}시간 간격 자동 반복)" if c.get("repeat_hours") else ""
+    embed.add_field(name="📆 요일", value=days_text(c["days"]), inline=True)
+    embed.add_field(name="⏰ 시작 시간", value=" · ".join(c["times"]) + repeat, inline=True)
+    embed.add_field(name="🔔 알림 시기", value=f"시작 {c['before']}분 전", inline=True)
+    embed.add_field(name="알림 상태", value="🔔 켜짐" if c["enabled"] else "🔕 꺼짐", inline=True)
+    embed.add_field(name="주요 일정 표시", value="📌 표시함" if c["important"] else "➖ 표시 안 함", inline=True)
+    embed.add_field(name="💬 알림 미리보기", value=render_alert(c, c["times"][0])[:1024], inline=False)
     return embed
  
  
@@ -293,13 +441,15 @@ async def build_latest_embed(board: str) -> discord.Embed:
 def build_help_embed() -> discord.Embed:
     embed = discord.Embed(
         title="🤖 장벽봇 도움말",
-        description=f"24시간 자동으로 아이온2 알림을 `{AUTO_CHANNEL_NAME}` 채널에 전송합니다.",
+        description=f"아이온2 콘텐츠 알림과 공지·업데이트·CM 아지트 소식을 "
+                    f"`{AUTO_CHANNEL_NAME}` 채널로 24시간 자동 전송해 드립니다.",
         color=discord.Color.blue(),
     )
     embed.add_field(
         name="명령어",
-        value="`/패널생성` - 이 채널에 시간표 패널 설치 (관리자)\n"
-              "`/일정` - 오늘의 일정\n"
+        value="`/안내패널생성` - 누구나 쓰는 안내 패널 설치 (관리자)\n"
+              "`/패널생성` - 일정 관리 패널 설치 (관리자)\n"
+              "`/일정` - 오늘의 주요 일정\n"
               "`/도움말` - 봇 안내",
         inline=False,
     )
@@ -309,19 +459,26 @@ def build_help_embed() -> discord.Embed:
 # ─────────────────────────────────────────
 # 변경 저장 + 모든 패널 갱신
 # ─────────────────────────────────────────
-async def commit_changes(panel_message: discord.Message | None = None):
-    save_local()
-    if panel_message:
-        panel_messages.add((panel_message.channel.id, panel_message.id))
-    for ch_id, msg_id in list(panel_messages):
+async def refresh_all_panels():
+    for (ch_id, msg_id), kind in list(panel_messages.items()):
         try:
             ch = bot.get_channel(ch_id) or await bot.fetch_channel(ch_id)
             msg = ch.get_partial_message(msg_id)
-            await msg.edit(embed=build_panel_embed(), view=PanelView(), attachments=[backup_file()])
+            if kind == "admin":
+                await msg.edit(embed=build_panel_embed(), view=PanelView(), attachments=[backup_file()])
+            else:
+                await msg.edit(embed=build_info_panel_embed(), view=InfoPanelView())
         except discord.NotFound:
-            panel_messages.discard((ch_id, msg_id))
+            panel_messages.pop((ch_id, msg_id), None)
         except Exception as e:
             logger.warning(f"패널 갱신 실패 ({ch_id}/{msg_id}): {e}")
+ 
+ 
+async def commit_changes(panel_message: discord.Message | None = None):
+    save_local()
+    if panel_message:
+        panel_messages[(panel_message.channel.id, panel_message.id)] = "admin"
+    await refresh_all_panels()
  
  
 def is_manager(interaction: discord.Interaction) -> bool:
@@ -340,8 +497,11 @@ async def send_error(interaction: discord.Interaction,
         pass
  
  
+NO_PERMISSION_MSG = "⚠️ 일정 수정은 **서버 관리 권한**이 있는 분만 하실 수 있습니다."
+ 
+ 
 # ─────────────────────────────────────────
-# 일정 수정: ① 콘텐츠 선택
+# 일정 수정: 콘텐츠 선택
 # ─────────────────────────────────────────
 class ContentSelect(discord.ui.Select):
     def __init__(self, panel_message):
@@ -353,7 +513,7 @@ class ContentSelect(discord.ui.Select):
             )
             for key, c in contents.items()
         ]
-        super().__init__(placeholder="수정할 콘텐츠를 선택하세요", options=options[:25])
+        super().__init__(placeholder="👉 수정하실 콘텐츠를 선택해 주세요", options=options[:25])
  
     async def callback(self, interaction: discord.Interaction):
         key = self.values[0]
@@ -368,8 +528,13 @@ class ContentSelectView(discord.ui.View):
         self.add_item(ContentSelect(panel_message))
  
  
+SELECT_GUIDE = ("⚙️ **일정 수정**\n"
+                "아래 메뉴에서 수정하실 콘텐츠를 선택해 주세요.\n"
+                "선택하시면 요일 · 시작 시간 · 알림 시기 · 안내 문구를 차례대로 바꾸실 수 있습니다.")
+ 
+ 
 # ─────────────────────────────────────────
-# 일정 수정: ② 요일 선택 / ③ 시간·알림시기·멘트 팝업 / 알림 켜기·끄기
+# 일정 수정: 요일 선택
 # ─────────────────────────────────────────
 class DaySelect(discord.ui.Select):
     def __init__(self, key: str):
@@ -377,57 +542,73 @@ class DaySelect(discord.ui.Select):
         current = contents[key]["days"]
         options = [discord.SelectOption(label=f"{name}요일", value=str(i), default=i in current)
                    for i, name in enumerate(DAY_NAMES)]
-        super().__init__(placeholder="① 알림 요일 선택 (여러 개 가능)",
+        super().__init__(placeholder="📆 1단계: 알림을 보낼 요일을 골라 주세요 (여러 개 선택 가능)",
                          min_values=1, max_values=7, options=options, row=0)
  
     async def callback(self, interaction: discord.Interaction):
         view: "ContentEditView" = self.view
-        contents[self.key]["days"] = sorted(int(v) for v in self.values)
-        logger.info(f"[일정 수정] {contents[self.key]['name']} 요일 → {days_text(contents[self.key]['days'])} (by {interaction.user})")
+        c = contents[self.key]
+        c["days"] = sorted(int(v) for v in self.values)
+        logger.info(f"[일정 수정] {c['name']} 요일 → {days_text(c['days'])} (by {interaction.user})")
         await interaction.response.edit_message(
             embed=build_editor_embed(self.key), view=ContentEditView(self.key, view.panel_message))
         await commit_changes(view.panel_message)
  
  
+# ─────────────────────────────────────────
+# 일정 수정: 시간 · 알림 시기 · 안내 문구 팝업
+# ─────────────────────────────────────────
 class ContentTimeModal(discord.ui.Modal):
-    def __init__(self, key: str, panel_message):
+    def __init__(self, key: str, panel_message, from_panel: bool = False):
         c = contents[key]
         super().__init__(title=f"{c['name']} 시간·알림 수정"[:45])
         self.key = key
         self.panel_message = panel_message
+        self.from_panel = from_panel   # 패널의 바로가기 버튼에서 열었는지
+        repeat = c.get("repeat_hours") or 0
  
-        self.times_input = discord.ui.TextInput(
-            label="② 시작 시간 (여러 개는 쉼표로 구분)",
-            placeholder="20:00, 23:00",
-            default=", ".join(c["times"]),
-            max_length=100, required=True,
-        )
+        if repeat:
+            self.times_input = discord.ui.TextInput(
+                label=f"기준 젠 시간 ({repeat}시간 간격으로 자동 계산돼요)"[:45],
+                placeholder="예) 05:00 → 05:00, 17:00 으로 자동 등록",
+                default=c["times"][0], max_length=10, required=True,
+            )
+        else:
+            self.times_input = discord.ui.TextInput(
+                label="시작 시간 (여러 개면 쉼표로 구분해 주세요)",
+                placeholder="예) 20:00, 23:00",
+                default=", ".join(c["times"]), max_length=100, required=True,
+            )
         self.before_input = discord.ui.TextInput(
-            label="③ 몇 분 전에 알림? (0~180)",
-            placeholder="10",
-            default=str(c["before"]),
-            max_length=3, required=True,
+            label="몇 분 전에 알려드릴까요? (숫자만, 0~180)",
+            placeholder="예) 10  → 시작 10분 전에 알림 / 0 → 시작 시간에 알림",
+            default=str(c["before"]), max_length=3, required=True,
         )
-        self.message_input = discord.ui.TextInput(
-            label="④ 알림 멘트 ({이름} {시간} {분} 사용 가능)",
+        self.comment_input = discord.ui.TextInput(
+            label="알림과 함께 보낼 안내 문구 (자유롭게 작성)",
             style=discord.TextStyle.paragraph,
-            placeholder=DEFAULT_TEMPLATE,
-            default=c["message"],
-            max_length=300, required=True,
+            placeholder="예) 미리 접속해서 파티를 꾸려 주세요! 집결 장소는 ○○입니다.\n"
+                        "※ 콘텐츠 이름·시작 시간은 알림 윗줄에 자동으로 들어갑니다.",
+            default=c["comment"], max_length=300, required=False,
         )
         self.add_item(self.times_input)
         self.add_item(self.before_input)
-        self.add_item(self.message_input)
+        self.add_item(self.comment_input)
  
     async def on_submit(self, interaction: discord.Interaction):
-        raw_times = [x for x in re.split(r"[,\s/]+", self.times_input.value) if x]
+        c = contents[self.key]
+        repeat = c.get("repeat_hours") or 0
+ 
+        raw_times = [x for x in re.split(r"[,，/\n]+", self.times_input.value) if x.strip()]
         times = [normalize_time(x) for x in raw_times]
         if not times or None in times:
-            bad = ", ".join(x for x, t in zip(raw_times, times) if t is None) or "(비어 있음)"
+            bad = ", ".join(x.strip() for x, t in zip(raw_times, times) if t is None) or "(비어 있음)"
             await interaction.response.send_message(
-                f"⚠️ 시간 형식이 잘못되었습니다: `{bad}`\n`21:20` 처럼 00:00~23:59로 입력해 주세요.",
-                ephemeral=True)
+                f"⚠️ 시간 형식을 확인해 주세요: `{bad}`\n"
+                "`21:20` 처럼 **00:00 ~ 23:59** 사이로 입력해 주시면 됩니다.", ephemeral=True)
             return
+        if repeat:
+            times = expand_repeat(times[0], repeat)
  
         try:
             before = int(self.before_input.value.strip())
@@ -435,17 +616,22 @@ class ContentTimeModal(discord.ui.Modal):
                 raise ValueError
         except ValueError:
             await interaction.response.send_message(
-                "⚠️ 알림 시기는 0~180 사이 숫자로 입력해 주세요. (예: `10`)", ephemeral=True)
+                "⚠️ 알림 시기는 **0 ~ 180 사이 숫자**로만 입력해 주세요. (예: `10`)", ephemeral=True)
             return
  
-        c = contents[self.key]
         c["times"] = sorted(set(times))
         c["before"] = before
-        c["message"] = self.message_input.value.strip()
+        c["comment"] = self.comment_input.value.strip()
         logger.info(f"[일정 수정] {c['name']} 시간 {c['times']} / {before}분 전 (by {interaction.user})")
  
-        await interaction.response.edit_message(
-            embed=build_editor_embed(self.key), view=ContentEditView(self.key, self.panel_message))
+        if self.from_panel:
+            await interaction.response.send_message(
+                f"✅ **{c['name']}** 일정이 저장되었습니다.\n"
+                f"⏰ {' · '.join(c['times'])}  |  🔔 시작 {before}분 전 알림\n\n"
+                f"**알림 미리보기**\n{render_alert(c, c['times'][0])}", ephemeral=True)
+        else:
+            await interaction.response.edit_message(
+                embed=build_editor_embed(self.key), view=ContentEditView(self.key, self.panel_message))
         await commit_changes(self.panel_message)
  
     async def on_error(self, interaction: discord.Interaction, error: Exception):
@@ -453,20 +639,25 @@ class ContentTimeModal(discord.ui.Modal):
         await send_error(interaction)
  
  
+# ─────────────────────────────────────────
+# 일정 수정 화면 (요일 메뉴 + 버튼)
+# ─────────────────────────────────────────
 class ContentEditView(discord.ui.View):
     def __init__(self, key: str, panel_message):
         super().__init__(timeout=600)
         self.key = key
         self.panel_message = panel_message
+        c = contents[key]
         self.add_item(DaySelect(key))
-        self.toggle_button.label = "알림 끄기" if contents[key]["enabled"] else "알림 켜기"
-        self.toggle_button.emoji = "🔕" if contents[key]["enabled"] else "🔔"
+        self.toggle_button.label = "알림 끄기" if c["enabled"] else "알림 켜기"
+        self.toggle_button.emoji = "🔕" if c["enabled"] else "🔔"
+        self.important_button.label = "주요 일정에서 빼기" if c["important"] else "주요 일정에 넣기"
  
-    @discord.ui.button(label="시간·알림·멘트 수정", emoji="⏰", style=discord.ButtonStyle.success, row=1)
+    @discord.ui.button(label="2단계: 시간·알림·문구 수정", emoji="⏰", style=discord.ButtonStyle.success, row=1)
     async def time_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(ContentTimeModal(self.key, self.panel_message))
  
-    @discord.ui.button(label="알림 끄기", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="알림 끄기", style=discord.ButtonStyle.secondary, row=2)
     async def toggle_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         c = contents[self.key]
         c["enabled"] = not c["enabled"]
@@ -475,18 +666,26 @@ class ContentEditView(discord.ui.View):
             embed=build_editor_embed(self.key), view=ContentEditView(self.key, self.panel_message))
         await commit_changes(self.panel_message)
  
-    @discord.ui.button(label="멘트 기본값으로", emoji="♻️", style=discord.ButtonStyle.secondary, row=1)
-    async def reset_message_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        contents[self.key]["message"] = DEFAULT_TEMPLATE
+    @discord.ui.button(label="주요 일정에서 빼기", emoji="📌", style=discord.ButtonStyle.secondary, row=2)
+    async def important_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        c = contents[self.key]
+        c["important"] = not c["important"]
         await interaction.response.edit_message(
             embed=build_editor_embed(self.key), view=ContentEditView(self.key, self.panel_message))
         await commit_changes(self.panel_message)
  
-    @discord.ui.button(label="다른 콘텐츠 선택", emoji="↩️", style=discord.ButtonStyle.primary, row=2)
+    @discord.ui.button(label="안내 문구 기본값으로", emoji="♻️", style=discord.ButtonStyle.secondary, row=2)
+    async def reset_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        contents[self.key]["comment"] = DEFAULT_CONTENTS.get(self.key, {}).get(
+            "comment", "미리 접속해서 준비해 주세요!")
+        await interaction.response.edit_message(
+            embed=build_editor_embed(self.key), view=ContentEditView(self.key, self.panel_message))
+        await commit_changes(self.panel_message)
+ 
+    @discord.ui.button(label="다른 콘텐츠 선택", emoji="↩️", style=discord.ButtonStyle.primary, row=3)
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(
-            content="수정할 콘텐츠를 선택하세요.", embed=None,
-            view=ContentSelectView(self.panel_message))
+            content=SELECT_GUIDE, embed=None, view=ContentSelectView(self.panel_message))
  
     async def on_error(self, interaction: discord.Interaction, error: Exception, item):
         logger.error(f"일정 편집 오류: {error}")
@@ -494,49 +693,84 @@ class ContentEditView(discord.ui.View):
  
  
 # ─────────────────────────────────────────
-# 메인 패널 (Persistent View: timeout=None + custom_id)
+# 관리자 패널 (Persistent View: timeout=None + custom_id) — 서버 관리 권한 필요
 # ─────────────────────────────────────────
 class PanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
  
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        # 이 패널의 모든 버튼은 관리자만 사용 가능
+        if is_manager(interaction):
+            return True
+        await interaction.response.send_message(
+            "🔒 이 패널은 **관리자 전용**입니다.\n"
+            "일정·공지사항·업데이트·CM 아지트는 **📌 장벽봇 안내** 패널에서 누구나 확인하실 수 있습니다.",
+            ephemeral=True)
+        return False
+ 
     @discord.ui.button(label="일정 새로고침", emoji="🔄", row=0,
                        style=discord.ButtonStyle.primary, custom_id="btn_refresh_schedule")
     async def refresh_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        panel_messages.add((interaction.channel_id, interaction.message.id))
+        panel_messages[(interaction.channel_id, interaction.message.id)] = "admin"
         await interaction.response.edit_message(
             embed=build_panel_embed(), view=self, attachments=[backup_file()])
+        await refresh_all_panels()   # 안내 패널도 함께 최신화
  
     @discord.ui.button(label="일정 수정", emoji="⚙️", row=0,
                        style=discord.ButtonStyle.success, custom_id="btn_edit_schedule")
     async def edit_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not is_manager(interaction):
-            await interaction.response.send_message(
-                "⚠️ 일정 수정은 **서버 관리 권한**이 있는 사람만 할 수 있습니다.", ephemeral=True)
-            return
-        panel_messages.add((interaction.channel_id, interaction.message.id))
+        panel_messages[(interaction.channel_id, interaction.message.id)] = "admin"
         await interaction.response.send_message(
-            "수정할 콘텐츠를 선택하세요.", view=ContentSelectView(interaction.message), ephemeral=True)
+            SELECT_GUIDE, view=ContentSelectView(interaction.message), ephemeral=True)
  
-    @discord.ui.button(label="오늘의 일정", emoji="📅", row=1,
-                       style=discord.ButtonStyle.secondary, custom_id="btn_today_schedule")
+    @discord.ui.button(label="아그로 젠 시간 수정", emoji="🐲", row=0,
+                       style=discord.ButtonStyle.danger, custom_id="btn_quick_agro")
+    async def agro_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if "agro" not in contents:
+            await interaction.response.send_message("⚠️ 아그로 일정을 찾을 수 없습니다.", ephemeral=True)
+            return
+        panel_messages[(interaction.channel_id, interaction.message.id)] = "admin"
+        await interaction.response.send_modal(
+            ContentTimeModal("agro", interaction.message, from_panel=True))
+ 
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item):
+        logger.error(f"관리자 패널 오류 ({getattr(item, 'custom_id', item)}): {error}")
+        await send_error(interaction)
+ 
+ 
+# ─────────────────────────────────────────
+# 안내 패널 (누구나 사용, 결과는 누른 사람에게만 보임)
+# ─────────────────────────────────────────
+class InfoPanelView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+ 
+    @discord.ui.button(label="오늘의 주요 일정", emoji="📅", row=0,
+                       style=discord.ButtonStyle.primary, custom_id="btn_today_schedule")
     async def today_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message(embed=build_today_embed(), ephemeral=True)
  
-    @discord.ui.button(label="최근 공지사항", emoji="📢", row=1,
+    @discord.ui.button(label="공지사항", emoji="📢", row=0,
                        style=discord.ButtonStyle.secondary, custom_id="btn_latest_notice")
     async def notice_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True, thinking=True)
         await interaction.followup.send(embed=await build_latest_embed("notice"), ephemeral=True)
  
-    @discord.ui.button(label="최근 업데이트", emoji="🚀", row=1,
+    @discord.ui.button(label="업데이트", emoji="🚀", row=1,
                        style=discord.ButtonStyle.secondary, custom_id="btn_latest_update")
     async def update_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True, thinking=True)
         await interaction.followup.send(embed=await build_latest_embed("update"), ephemeral=True)
  
+    @discord.ui.button(label="CM 아지트", emoji="🏠", row=1,
+                       style=discord.ButtonStyle.secondary, custom_id="btn_latest_cm_story")
+    async def cm_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.followup.send(embed=await build_latest_embed("cm_story"), ephemeral=True)
+ 
     async def on_error(self, interaction: discord.Interaction, error: Exception, item):
-        logger.error(f"패널 버튼 오류 ({getattr(item, 'custom_id', item)}): {error}")
+        logger.error(f"안내 패널 오류 ({getattr(item, 'custom_id', item)}): {error}")
         await send_error(interaction)
  
  
@@ -545,7 +779,9 @@ class PanelView(discord.ui.View):
 # ─────────────────────────────────────────
 class BarrierBot(commands.Bot):
     async def setup_hook(self):
-        self.add_view(PanelView())   # 재시작 후에도 기존 패널 버튼 동작
+        # 재시작 후에도 기존 패널 버튼이 동작하도록 등록 (관리자 패널 + 안내 패널)
+        self.add_view(PanelView())
+        self.add_view(InfoPanelView())
         await asyncio.sleep(3)
         try:
             synced = await self.tree.sync()
@@ -633,7 +869,7 @@ async def before_website_updates():
  
 # ─────────────────────────────────────────
 # 콘텐츠 알림 (1분 주기, KST)
-# 요일+시작시간에서 'N분 전'을 계산 → 자정을 넘는 경우(예: 00:05 시작 10분 전)도 처리
+# 요일+시작시간에서 'N분 전'을 계산 → 자정을 넘는 경우도 처리
 # ─────────────────────────────────────────
 WEEK_MIN = 7 * 24 * 60
  
@@ -646,9 +882,8 @@ def due_messages(now: datetime) -> list[str]:
             continue
         for d in c["days"]:
             for t in c["times"]:
-                alert_wm = (d * 1440 + to_minutes(t) - c["before"]) % WEEK_MIN
-                if alert_wm == now_wm:
-                    due.append(render_message(c, t))
+                if (d * 1440 + to_minutes(t) - c["before"]) % WEEK_MIN == now_wm:
+                    due.append(render_alert(c, t))
     return due
  
  
@@ -665,8 +900,11 @@ async def check_schedule_alerts():
         for msg in due_messages(now):
             await send_to_targets(content=msg)
  
+        if now.strftime("%H:%M") == "00:00":
+            await refresh_all_panels()   # 날짜가 바뀌면 패널의 '오늘 일정'도 갱신
+ 
         if DAILY_SUMMARY_TIME and now.strftime("%H:%M") == DAILY_SUMMARY_TIME:
-            await send_to_targets(embed=build_today_embed("📝 [오늘의 숙제 요약]"))
+            await send_to_targets(embed=build_today_embed("📝 [오늘의 숙제] 주요 일정"))
     except Exception as e:
         logger.error(f"일정 알림 루프 예외 (다음 주기에 재시도): {e}")
  
@@ -689,41 +927,60 @@ async def on_ready():
 # ─────────────────────────────────────────
 # 슬래시 명령어
 # ─────────────────────────────────────────
-@bot.tree.command(name="패널생성", description="이 채널에 주간 콘텐츠 시간표 패널을 설치합니다. (관리자 전용)")
-@app_commands.guild_only()
-@app_commands.default_permissions(manage_guild=True)
-async def create_panel(interaction: discord.Interaction):
+async def install_panel(interaction: discord.Interaction, kind: str):
+    """kind: 'admin'(관리자 패널) / 'info'(안내 패널). 같은 채널의 같은 종류 패널은 정리 후 새로 설치"""
     channel = interaction.channel
     await interaction.response.defer(ephemeral=True, thinking=True)
+    titles = ALL_PANEL_TITLES if kind == "admin" else {INFO_PANEL_TITLE}
  
     removed = 0
     try:
         async for msg in channel.history(limit=50):
             if (msg.author.id == bot.user.id and msg.embeds
-                    and msg.embeds[0].title in (PANEL_TITLE, "🛡️ 장벽봇 · 보스 & 콘텐츠 시간표", "🛡️ 장벽봇 패널")):
+                    and msg.embeds[0].title in titles):
                 await msg.delete()
-                panel_messages.discard((channel.id, msg.id))
+                panel_messages.pop((channel.id, msg.id), None)
                 removed += 1
     except discord.Forbidden:
         pass
  
     try:
-        new_msg = await channel.send(embed=build_panel_embed(), view=PanelView(), file=backup_file())
-        panel_messages.add((channel.id, new_msg.id))
+        if kind == "admin":
+            new_msg = await channel.send(embed=build_panel_embed(), view=PanelView(), file=backup_file())
+        else:
+            new_msg = await channel.send(embed=build_info_panel_embed(), view=InfoPanelView())
+        panel_messages[(channel.id, new_msg.id)] = kind
     except discord.Forbidden:
         await interaction.followup.send(
             "⚠️ 이 채널에 메시지(또는 파일)를 보낼 권한이 없습니다. 봇 권한을 확인해 주세요.", ephemeral=True)
         return
  
     note = f" (이전 패널 {removed}개 정리)" if removed else ""
-    tip = ""
-    if channel.name != AUTO_CHANNEL_NAME:
-        tip = (f"\n💡 패널을 `{AUTO_CHANNEL_NAME}` 채널에 설치해야 "
-               "봇이 재시작돼도 수정한 일정이 복원됩니다.")
-    await interaction.followup.send(f"✅ 패널을 설치했습니다.{note}{tip}", ephemeral=True)
+    if kind == "admin":
+        msg = (f"✅ **관리자 패널**을 설치했습니다.{note}\n"
+               "💡 관리자 패널은 관리자만 볼 수 있는 채널에 두시는 것을 추천드립니다. "
+               "(버튼은 어디에 있든 관리자만 사용할 수 있습니다)\n"
+               "⚠️ 패널에 붙은 백업 파일은 지우지 마세요. 재배포 후 일정 복원에 사용됩니다.")
+    else:
+        msg = f"✅ 누구나 사용하는 **안내 패널**을 설치했습니다.{note}"
+    await interaction.followup.send(msg, ephemeral=True)
  
  
-@bot.tree.command(name="일정", description="오늘의 콘텐츠 일정을 확인합니다.")
+@bot.tree.command(name="패널생성", description="이 채널에 일정 관리 패널(관리자 전용)을 설치합니다.")
+@app_commands.guild_only()
+@app_commands.default_permissions(manage_guild=True)
+async def create_panel(interaction: discord.Interaction):
+    await install_panel(interaction, "admin")
+ 
+ 
+@bot.tree.command(name="안내패널생성", description="이 채널에 누구나 쓰는 안내 패널(일정·공지·업데이트·CM 아지트)을 설치합니다.")
+@app_commands.guild_only()
+@app_commands.default_permissions(manage_guild=True)
+async def create_info_panel(interaction: discord.Interaction):
+    await install_panel(interaction, "info")
+ 
+ 
+@bot.tree.command(name="일정", description="오늘의 주요 일정을 확인합니다.")
 async def schedule_command(interaction: discord.Interaction):
     await interaction.response.send_message(embed=build_today_embed(), ephemeral=True)
  
@@ -736,7 +993,7 @@ async def help_command(interaction: discord.Interaction):
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     if isinstance(error, app_commands.MissingPermissions):
-        await send_error(interaction, "⚠️ 이 명령어는 서버 관리 권한이 있는 사람만 쓸 수 있습니다.")
+        await send_error(interaction, "⚠️ 이 명령어는 서버 관리 권한이 있는 분만 쓰실 수 있습니다.")
     else:
         logger.error(f"명령어 오류: {error}")
         await send_error(interaction, "⚠️ 명령어 처리 중 오류가 발생했습니다.")
